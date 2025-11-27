@@ -1,6 +1,6 @@
-# desde hasta   dH_obs   distancia_km
-Enebro  A       10.997    0.022
-A       B       -9.169    0.016
-B       ROJO    3.532     0.029
-B       ROCA    4.858     0.02
-
+# desde  hasta   dH_obs   distancia_km
+BN1     A       10.997    2.0
+BN2     A       -9.169    2.0
+A       B        3.532    0.5
+BN3     B        4.858    1.0
+BN4     B       -2.202    1.0
