@@ -1,4 +1,7 @@
+import os
 import numpy as np
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
 
 # --------------------------------------------------
 # Funciones de lectura
@@ -62,9 +65,45 @@ def leer_cotas_conocidas(ruta_val):
 
 
 # --------------------------------------------------
+# Utilidad para escribir PDF sencillo
+# --------------------------------------------------
+def escribir_pdf(nombre_pdf, texto):
+    """
+    Genera un PDF básico con el contenido de 'texto' (string multilínea).
+    """
+    c = canvas.Canvas(nombre_pdf, pagesize=A4)
+    width, height = A4
+    x_margin = 40
+    y = height - 40
+
+    text_obj = c.beginText()
+    text_obj.setTextOrigin(x_margin, y)
+    text_obj.setFont("Courier", 9)  # monoespaciada para que las columnas cuadren
+
+    for line in texto.splitlines():
+        if text_obj.getY() < 40:  # nueva página si se acaba el espacio
+            c.drawText(text_obj)
+            c.showPage()
+            text_obj = c.beginText()
+            text_obj.setTextOrigin(x_margin, height - 40)
+            text_obj.setFont("Courier", 9)
+        text_obj.textLine(line)
+
+    c.drawText(text_obj)
+    c.showPage()
+    c.save()
+
+
+# --------------------------------------------------
 # Función principal de ajuste
 # --------------------------------------------------
-def ajustar_nivelacion(ruta_mes, ruta_val):
+def ajustar_nivelacion(ruta_mes, ruta_val, sigma0_apriori=1.0):
+    """
+    Ajusta la red de nivelación y genera:
+      - reporte .txt
+      - reporte .pdf
+    sigma0_apriori: σ0 a priori (por defecto = 1.0) para interpretación tipo χ² global.
+    """
     # 1) Leer datos
     obs = leer_mediciones(ruta_mes)
     H_known = leer_cotas_conocidas(ruta_val)
@@ -120,8 +159,9 @@ def ajustar_nivelacion(ruta_mes, ruta_val):
         # Término derecho de la ecuación
         L[i, 0] = dh
 
-        # Peso: p = 1 / σ²  (regla "clásica"); cambia aquí si quieres otra
-        P[i, i] = 1.0 / (dsv ** 2)
+        # Peso: p = 1 / σ² (regla clásica)
+        # P[i, i] = 1.0 / (dsv ** 2)
+        P[i, i] = 1.0 / (dsv) # corregido para evitar error de sintaxis por el libro
 
     # 4) Ecuaciones normales y solución
     try:
@@ -141,8 +181,13 @@ def ajustar_nivelacion(ruta_mes, ruta_val):
             f"Grados de libertad no positivos: f = {f}. Revisa número de observaciones/incógnitas."
         )
 
-    sigma0_sq = (V_hat.T @ P @ V_hat).item() / f
+    vTPv = (V_hat.T @ P @ V_hat).item()
+    sigma0_sq = vTPv / f
     sigma0 = sigma0_sq ** 0.5
+
+    # "Chi cuadrado" observado con σ0_apriori
+    chi2_obs = vTPv / (sigma0_apriori ** 2)
+    chi2_reducido = sigma0_sq / (sigma0_apriori ** 2)
 
     # 5) Precisión de las incógnitas
     try:
@@ -155,25 +200,63 @@ def ajustar_nivelacion(ruta_mes, ruta_val):
     Cxx = sigma0_sq * Qxx
     sigmas = np.sqrt(np.diag(Cxx))
 
-    # 6) Reporte
-    print("Incógnitas:", unknowns)
-    print("Matriz A =\n", A)
-    print("Vector L =\n", L)
-    print("Matriz de pesos P =\n", P)
+    # 6) Residuos tipificados
+    p_diag = np.diag(P)
+    std_residuals = V_hat.flatten() * np.sqrt(p_diag) / sigma0
 
-    print("\nCotas ajustadas:")
+    # 7) Construir reporte en texto
+    base = os.path.splitext(os.path.basename(ruta_mes))[0]
+    nombre_txt = f"{base}_reporte.txt"
+    nombre_pdf = f"{base}_reporte.pdf"
+
+    lines = []
+    lines.append("REPORTE DE AJUSTE DE NIVELACIÓN")
+    lines.append("=" * 40)
+    lines.append(f"Archivo de observaciones : {ruta_mes}")
+    lines.append(f"Archivo de cotas conocidas: {ruta_val}")
+    lines.append("")
+    lines.append(f"Nº observaciones (m) : {m}")
+    lines.append(f"Nº incógnitas (n)   : {n}")
+    lines.append(f"Grados de libertad f: {f}")
+    lines.append("")
+    lines.append(f"vᵀ P v        = {vTPv:.6f}")
+    lines.append(f"sigma0² (a post) = {sigma0_sq:.9f}")
+    lines.append(f"sigma0  (a post) = {sigma0:.6f} m")
+    lines.append("")
+    lines.append(f"sigma0 a priori        = {sigma0_apriori:.6f}")
+    lines.append(f"chi² observado         = {chi2_obs:.6f}")
+    lines.append(f"chi² reducido (≈sigma0²) = {chi2_reducido:.6f}")
+    lines.append("")
+    lines.append("COTAS AJUSTADAS")
+    lines.append("-" * 40)
+    lines.append("Punto      Cota (m)        ±σ (m)")
     for name, val, s in zip(unknowns, X_hat.flatten(), sigmas):
-        print(f"  {name} = {val:.6f} m   ± {s:.4f} m")
+        lines.append(f"{name:8s}  {val:12.6f}   ± {s:8.4f}")
+    lines.append("")
+    lines.append("RESIDUOS Y RESIDUOS TIPIFICADOS")
+    lines.append("-" * 40)
+    lines.append("i   v_i (m)       r_i = v_i * sqrt(p_i) / sigma0")
+    for i, (v, r) in enumerate(zip(V_hat.flatten(), std_residuals), start=1):
+        lines.append(f"{i:2d}  {v:10.6f}      {r:10.3f}")
+    lines.append("")
+    lines.append("MATRIZ Qxx (cofactores de incógnitas)")
+    lines.append(str(Qxx))
+    lines.append("")
+    lines.append("MATRIZ Cxx (covarianza de incógnitas)")
+    lines.append(str(Cxx))
+    lines.append("")
 
-    print("\nResiduos v_i:")
-    for i, v in enumerate(V_hat.flatten(), start=1):
-        print(f"  v_{i} = {v:.6f} m")
+    reporte_texto = "\n".join(lines)
 
-    print(f"\nVarianza a posteriori σ0² = {sigma0_sq:.9f}")
-    print(f"Desv. típica a posteriori σ0 = {sigma0:.6f} m")
+    # 8) Guardar TXT
+    with open(nombre_txt, "w", encoding="utf-8") as f_out:
+        f_out.write(reporte_texto)
 
-    print("\nMatriz Qxx =\n", Qxx)
-    print("Matriz Cxx =\n", Cxx)
+    # 9) Guardar PDF
+    escribir_pdf(nombre_pdf, reporte_texto)
+
+    print(f"\nReporte TXT generado: {nombre_txt}")
+    print(f"Reporte PDF generado: {nombre_pdf}")
 
     # Devuelvo resultados para uso posterior
     return {
@@ -184,6 +267,9 @@ def ajustar_nivelacion(ruta_mes, ruta_val):
         "sigma0": sigma0,
         "Qxx": Qxx,
         "Cxx": Cxx,
+        "chi2_obs": chi2_obs,
+        "chi2_reducido": chi2_reducido,
+        "std_residuals": std_residuals,
     }
 
 
@@ -192,7 +278,8 @@ def ajustar_nivelacion(ruta_mes, ruta_val):
 # --------------------------------------------------
 if __name__ == "__main__":
     try:
-        resultados = ajustar_nivelacion("nivelacion.mes", "nivelacion.val")
+        resultados = ajustar_nivelacion("nivelacion.mes", "nivelacion.val",
+                                        sigma0_apriori=1.0)
     except FileNotFoundError as e:
         print(f"ERROR: no se encontró el archivo -> {e.filename}")
     except ValueError as e:
@@ -200,5 +287,4 @@ if __name__ == "__main__":
     except np.linalg.LinAlgError as e:
         print(f"ERROR numérico en el ajuste: {e}")
     except Exception as e:
-        # Último catch por si algo inesperado revienta
         print(f"ERROR inesperado: {type(e).__name__}: {e}")

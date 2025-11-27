@@ -1,0 +1,39 @@
+REPORTE DE AJUSTE DE NIVELACIÓN
+========================================
+Archivo de observaciones : nivelacion.mes
+Archivo de cotas conocidas: nivelacion.val
+
+Nº observaciones (m) : 5
+Nº incógnitas (n)   : 2
+Grados de libertad f: 3
+
+vᵀ P v        = 0.000658
+sigma0² (a post) = 0.000219208
+sigma0  (a post) = 0.014806 m
+
+sigma0 a priori        = 1.000000
+chi² observado         = 0.000658
+chi² reducido (≈sigma0²) = 0.000219
+
+COTAS AJUSTADAS
+----------------------------------------
+Punto      Cota (m)        ±σ (m)
+A           796.218250   ±   0.0105
+B           799.741875   ±   0.0091
+
+RESIDUOS Y RESIDUOS TIPIFICADOS
+----------------------------------------
+i   v_i (m)       r_i = v_i * sqrt(p_i) / sigma0
+ 1    0.010750           0.513
+ 2    0.022750           1.087
+ 3    0.008375           0.800
+ 4   -0.002875          -0.194
+ 5   -0.013875          -0.937
+
+MATRIZ Qxx (cofactores de incógnitas)
+[[0.5   0.25 ]
+ [0.25  0.375]]
+
+MATRIZ Cxx (covarianza de incógnitas)
+[[1.09604167e-04 5.48020833e-05]
+ [5.48020833e-05 8.22031250e-05]]
